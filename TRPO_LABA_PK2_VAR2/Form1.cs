@@ -45,9 +45,9 @@ public partial class MainForm : Form
         // 
         // progressBar
         // 
-        progressBar.Location = new Point(12, 460);
+        progressBar.Location = new Point(199, 431);
         progressBar.Name = "progressBar";
-        progressBar.Size = new Size(663, 23);
+        progressBar.Size = new Size(559, 23);
         progressBar.TabIndex = 2;
         // 
         // lstFiles
@@ -56,7 +56,7 @@ public partial class MainForm : Form
         lstFiles.ItemHeight = 17;
         lstFiles.Location = new Point(15, 13);
         lstFiles.Name = "lstFiles";
-        lstFiles.Size = new Size(660, 412);
+        lstFiles.Size = new Size(743, 412);
         lstFiles.TabIndex = 3;
         // 
         // lblStatus
@@ -70,7 +70,7 @@ public partial class MainForm : Form
         // 
         // MainForm
         // 
-        ClientSize = new Size(687, 496);
+        ClientSize = new Size(770, 463);
         Controls.Add(lblStatus);
         Controls.Add(lstFiles);
         Controls.Add(progressBar);
@@ -129,7 +129,9 @@ public partial class MainForm : Form
                         using (var ms = new MemoryStream(imageBytes))
                         using (var originalImage = new Bitmap(ms))
                         {
-                            ApplyBlur(originalImage, filename, extension);
+                            Bitmap processedImage = new BlurFilter().Apply(originalImage, filename, extension);
+                            SaveImageSafely(processedImage, $"{filename}_blur{extension}");
+                            processedImage.Dispose();
                         }
                     }),
                     Task.Run(() =>
@@ -137,7 +139,9 @@ public partial class MainForm : Form
                         using (var ms = new MemoryStream(imageBytes))
                         using (var originalImage = new Bitmap(ms))
                         {
-                            ApplyContrast(originalImage, filename, extension);
+                            Bitmap processedImage = new ContrastFilter().Apply(originalImage, filename, extension);
+                            SaveImageSafely(processedImage, $"{filename}_contrast{extension}");
+                            processedImage.Dispose();
                         }
                     }),
                     Task.Run(() =>
@@ -145,7 +149,9 @@ public partial class MainForm : Form
                         using (var ms = new MemoryStream(imageBytes))
                         using (var originalImage = new Bitmap(ms))
                         {
-                            ApplyBrightness(originalImage, filename, extension);
+                            Bitmap processedImage = new BrightFilter().Apply(originalImage, filename, extension);
+                            SaveImageSafely(processedImage, $"{filename}_bright{extension}");
+                            processedImage.Dispose();
                         }
                     })
                 };
@@ -156,115 +162,6 @@ public partial class MainForm : Form
         {
             throw new Exception($"Error processing {Path.GetFileName(imagePath)}: {ex.Message}");
         }
-    }
-
-    private void ApplyBlur(Bitmap original, string filename, string extension)
-    {
-        using (var processedImage = new Bitmap(original.Width, original.Height))
-        {
-            using (var g = Graphics.FromImage(processedImage))
-            {
-                var rect = new Rectangle(0, 0, processedImage.Width, processedImage.Height);
-                g.DrawImage(original, rect);
-            }
-
-            // Simple box blur implementation
-            for (int x = 1; x < processedImage.Width - 1; x++)
-            {
-                for (int y = 1; y < processedImage.Height - 1; y++)
-                {
-                    var avgR = 0;
-                    var avgG = 0;
-                    var avgB = 0;
-
-                    for (int i = -1; i <= 1; i++)
-                    {
-                        for (int j = -1; j <= 1; j++)
-                        {
-                            var pixel = processedImage.GetPixel(x + i, y + j);
-                            avgR += pixel.R;
-                            avgG += pixel.G;
-                            avgB += pixel.B;
-                        }
-                    }
-
-                    avgR /= 9;
-                    avgG /= 9;
-                    avgB /= 9;
-
-                    processedImage.SetPixel(x, y, Color.FromArgb(avgR, avgG, avgB));
-                }
-            }
-
-            SaveImageSafely(processedImage, $"{filename}_blur{extension}");
-        }
-    }
-
-    private void ApplyContrast(Bitmap original, string filename, string extension)
-    {
-        using (var processedImage = new Bitmap(original.Width, original.Height))
-        {
-            using (var g = Graphics.FromImage(processedImage))
-            {
-                var rect = new Rectangle(0, 0, processedImage.Width, processedImage.Height);
-                g.DrawImage(original, rect);
-            }
-
-            float contrast = 1.5f; // Contrast factor
-
-            for (int x = 0; x < processedImage.Width; x++)
-            {
-                for (int y = 0; y < processedImage.Height; y++)
-                {
-                    var pixel = processedImage.GetPixel(x, y);
-
-                    int r = ClampColor((int)((pixel.R - 128) * contrast + 128));
-                    int g = ClampColor((int)((pixel.G - 128) * contrast + 128));
-                    int b = ClampColor((int)((pixel.B - 128) * contrast + 128));
-
-                    processedImage.SetPixel(x, y, Color.FromArgb(r, g, b));
-                }
-            }
-
-            SaveImageSafely(processedImage, $"{filename}_contrast{extension}");
-        }
-    }
-
-    private void ApplyBrightness(Bitmap original, string filename, string extension)
-    {
-        using (var processedImage = new Bitmap(original.Width, original.Height))
-        {
-            using (var g = Graphics.FromImage(processedImage))
-            {
-                var rect = new Rectangle(0, 0, processedImage.Width, processedImage.Height);
-                g.DrawImage(original, rect);
-            }
-
-            float brightness = 1.2f; // Brightness factor
-
-            for (int x = 0; x < processedImage.Width; x++)
-            {
-                for (int y = 0; y < processedImage.Height; y++)
-                {
-                    var pixel = processedImage.GetPixel(x, y);
-
-                    int r = ClampColor((int)(pixel.R * brightness));
-                    int g = ClampColor((int)(pixel.G * brightness));
-                    int b = ClampColor((int)(pixel.B * brightness));
-
-                    processedImage.SetPixel(x, y, Color.FromArgb(r, g, b));
-                }
-            }
-
-            SaveImageSafely(processedImage, $"{filename}_brightness{extension}");
-        }
-    }
-
-    private int ClampColor(int value)
-    {
-        if (value > 255) return 255;
-        if (value < 0) return 0;
-        return value;
     }
 
     private void SaveImageSafely(Bitmap image, string filename)
