@@ -10,8 +10,8 @@ public partial class MainForm : Form
     public MainForm()
     {
         InitializeComponent();
-        outputDirectory = Path.Combine(Application.StartupPath, "ProcessedImages");
-        Directory.CreateDirectory(outputDirectory);
+        //outputDirectory = Path.Combine(Application.StartupPath, "ProcessedImages");
+        //Directory.CreateDirectory(outputDirectory);
     }
 
     private void InitializeComponent()
@@ -94,6 +94,8 @@ public partial class MainForm : Form
         progressBar.Maximum = selectedFiles.Count * 3; // 3 filters per image
         progressBar.Value = 0;
 
+        outputDirectory = SelectDirectory();
+
         try
         {
             var processingTasks = selectedFiles.Select(filePath => ProcessImageAsync(filePath));
@@ -161,6 +163,24 @@ public partial class MainForm : Form
         catch (Exception ex)
         {
             throw new Exception($"Error processing {Path.GetFileName(imagePath)}: {ex.Message}");
+        }
+    }
+
+    private string SelectDirectory()
+    {
+        using (var fbd = new FolderBrowserDialog())
+        {
+            DialogResult result = fbd.ShowDialog();
+
+            if (result == DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
+            {
+                return fbd.SelectedPath;
+            }
+
+            string defaultPath = Path.Combine(Application.StartupPath, "ProcessedImages");
+
+            MessageBox.Show("Images saved at " + defaultPath);
+            return Path.Combine(defaultPath);
         }
     }
 
