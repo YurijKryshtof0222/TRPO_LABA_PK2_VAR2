@@ -4,14 +4,19 @@ namespace TRPO_LABA_PK2_VAR2;
 
 public partial class MainForm : Form
 {
+    private Button btnSelectFiles;
+    private Button btnProcess;
+    private ProgressBar progressBar;
+    private ListBox lstFiles;
+    private Label lblStatus;
+
     private List<string> selectedFiles = new List<string>();
     private string outputDirectory;
+    private object lockObject = new object();
 
     public MainForm()
     {
         InitializeComponent();
-        //outputDirectory = Path.Combine(Application.StartupPath, "ProcessedImages");
-        //Directory.CreateDirectory(outputDirectory);
     }
 
     private void InitializeComponent()
@@ -81,7 +86,23 @@ public partial class MainForm : Form
         PerformLayout();
     }
 
-    private async void BtnProcess_Click(object sender, EventArgs e)
+    private void BtnSelectFiles_Click(object sender, EventArgs e)
+    {
+        using (OpenFileDialog ofd = new OpenFileDialog())
+        {
+            ofd.Filter = "Image Files|*.jpg;*.jpeg;*.png;*.bmp";
+            ofd.Multiselect = true;
+
+            if (ofd.ShowDialog() == DialogResult.OK)
+            {
+                selectedFiles = ofd.FileNames.ToList();
+                lstFiles.Items.Clear();
+                lstFiles.Items.AddRange(ofd.FileNames);
+            }
+        }
+    }
+
+    private void BtnProcess_Click(object sender, EventArgs e)
     {
         if (selectedFiles.Count == 0)
         {
@@ -96,69 +117,83 @@ public partial class MainForm : Form
 
         outputDirectory = SelectDirectory();
 
-        try
+        // Запускаємо обробку в окремому потоці
+        Task.Run(() =>
         {
-            var processingTasks = selectedFiles.Select(filePath => ProcessImageAsync(filePath));
-            await Task.WhenAll(processingTasks);
+            try
+            {
+                var processingTasks = selectedFiles.Select(filePath =>
+                    Task.Run(() => ProcessImage(filePath))
+                ).ToArray();
 
-            lblStatus.Text = "Processing completed!";
-            MessageBox.Show("All images have been processed successfully!");
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show($"Error during processing: {ex.Message}");
-        }
-        finally
-        {
-            btnProcess.Enabled = true;
-            btnSelectFiles.Enabled = true;
-        }
+                Task.WaitAll(processingTasks);
+
+                // Оновлюємо UI після завершення всіх завдань
+                this.Invoke((MethodInvoker)delegate
+                {
+                    lblStatus.Text = "Processing completed!";
+                    MessageBox.Show("All images have been processed successfully!");
+                    btnProcess.Enabled = true;
+                    btnSelectFiles.Enabled = true;
+                });
+            }
+            catch (Exception ex)
+            {
+                this.Invoke((MethodInvoker)delegate
+                {
+                    MessageBox.Show($"Error during processing: {ex.Message}");
+                    btnProcess.Enabled = true;
+                    btnSelectFiles.Enabled = true;
+                });
+            }
+        });
     }
 
-    private async Task ProcessImageAsync(string imagePath)
+    private void ProcessImage(string imagePath)
     {
-        // Створюємо окремі копії зображення для кожного фільтру
-        byte[] imageBytes = await File.ReadAllBytesAsync(imagePath);
+        byte[] imageBytes = File.ReadAllBytes(imagePath);
         var filename = Path.GetFileNameWithoutExtension(imagePath);
         var extension = Path.GetExtension(imagePath);
 
         try
         {
-            var tasks = new List<Task>
-                {
-                    Task.Run(() =>
-                    {
-                        using (var ms = new MemoryStream(imageBytes))
-                        using (var originalImage = new Bitmap(ms))
-                        {
-                            Bitmap processedImage = new BlurFilter().Apply(originalImage, filename, extension);
-                            SaveImageSafely(processedImage, $"{filename}_blur{extension}");
-                            processedImage.Dispose();
-                        }
-                    }),
-                    Task.Run(() =>
-                    {
-                        using (var ms = new MemoryStream(imageBytes))
-                        using (var originalImage = new Bitmap(ms))
-                        {
-                            Bitmap processedImage = new ContrastFilter().Apply(originalImage, filename, extension);
-                            SaveImageSafely(processedImage, $"{filename}_contrast{extension}");
-                            processedImage.Dispose();
-                        }
-                    }),
-                    Task.Run(() =>
-                    {
-                        using (var ms = new MemoryStream(imageBytes))
-                        using (var originalImage = new Bitmap(ms))
-                        {
-                            Bitmap processedImage = new BrightFilter().Apply(originalImage, filename, extension);
-                            SaveImageSafely(processedImage, $"{filename}_bright{extension}");
-                            processedImage.Dispose();
-                        }
-                    })
-                };
+            var tasks = new List<Task>();
 
-            await Task.WhenAll(tasks);
+            // Створюємо завдання для кожного фільтру
+            tasks.Add(Task.Run(() =>
+            {
+                using (var ms = new MemoryStream(imageBytes))
+                using (var originalImage = new Bitmap(ms))
+                {
+                    Bitmap processedImage = new BlurFilter().Apply(originalImage, filename, extension);
+                    SaveImageSafely(processedImage, $"{filename}_blur{extension}");
+                    processedImage.Dispose();
+                }
+            }));
+
+            tasks.Add(Task.Run(() =>
+            {
+                using (var ms = new MemoryStream(imageBytes))
+                using (var originalImage = new Bitmap(ms))
+                {
+                    Bitmap processedImage = new ContrastFilter().Apply(originalImage, filename, extension);
+                    SaveImageSafely(processedImage, $"{filename}_contrast{extension}");
+                    processedImage.Dispose();
+                }
+            }));
+
+            tasks.Add(Task.Run(() =>
+            {
+                using (var ms = new MemoryStream(imageBytes))
+                using (var originalImage = new Bitmap(ms))
+                {
+                    Bitmap processedImage = new BrightFilter().Apply(originalImage, filename, extension);
+                    SaveImageSafely(processedImage, $"{filename}_bright{extension}");
+                    processedImage.Dispose();
+                }
+            }));
+
+            Task.WaitAll(tasks.ToArray());
         }
         catch (Exception ex)
         {
@@ -178,45 +213,34 @@ public partial class MainForm : Form
             }
 
             string defaultPath = Path.Combine(Application.StartupPath, "ProcessedImages");
+            Directory.CreateDirectory(defaultPath); // Створюємо директорію, якщо вона не існує
 
-            MessageBox.Show("Images saved at " + defaultPath);
-            return Path.Combine(defaultPath);
+            MessageBox.Show("Images will be saved at " + defaultPath);
+            return defaultPath;
         }
     }
 
     private void SaveImageSafely(Bitmap image, string filename)
     {
-        lock (this) // Synchronize access to the output directory
+        lock (lockObject)
         {
-            var savePath = Path.Combine(outputDirectory, filename);
-            image.Save(savePath, ImageFormat.Jpeg);
-
-            this.Invoke((MethodInvoker)delegate {
-                progressBar.Value++;
-                lblStatus.Text = $"Processed: {progressBar.Value}/{progressBar.Maximum}";
-            });
-        }
-    }
-
-    private void BtnSelectFiles_Click(object sender, EventArgs e)
-    {
-        using (OpenFileDialog ofd = new OpenFileDialog())
-        {
-            ofd.Filter = "Image Files|*.jpg;*.jpeg;*.png;*.bmp";
-            ofd.Multiselect = true;
-
-            if (ofd.ShowDialog() == DialogResult.OK)
+            try
             {
-                selectedFiles = ofd.FileNames.ToList();
-                lstFiles.Items.Clear();
-                lstFiles.Items.AddRange(ofd.FileNames);
+                var savePath = Path.Combine(outputDirectory, filename);
+                image.Save(savePath, ImageFormat.Jpeg);
+
+                this.Invoke((MethodInvoker)delegate {
+                    progressBar.Value++;
+                    lblStatus.Text = $"Processed: {progressBar.Value}/{progressBar.Maximum}";
+                });
+            }
+            catch (Exception ex)
+            {
+                this.Invoke((MethodInvoker)delegate {
+                    MessageBox.Show($"Error saving image {filename}: {ex.Message}");
+                });
             }
         }
     }
 
-    private Button btnSelectFiles;
-    private Button btnProcess;
-    private ProgressBar progressBar;
-    private ListBox lstFiles;
-    private Label lblStatus;
 }
